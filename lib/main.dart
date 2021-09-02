@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -6,24 +8,14 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Scouting Navigator Speurtocht',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(title: 'Scouting Navigator Speurtocht'),
     );
   }
 }
@@ -31,31 +23,132 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   MyHomePage({Key? key, required this.title}) : super(key: key);
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
   final String title;
 
   @override
   _MyHomePageState createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-  Future<Position>? position;
+enum _PositionItemType {
+  log,
+  position,
+}
 
-  void initState() {
-    super.initState();
-    position = _determinePosition();
+class _PositionItem {
+  _PositionItem(this.type, this.displayValue);
+
+  final _PositionItemType type;
+  final String displayValue;
+}
+
+class Point {
+  Point(this.latitude, this.longitude);
+  final double latitude, longitude;
+  @override
+  String toString() {
+    return '$latitude, $longitude';
+  }
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  Position? position;
+  final GeolocatorPlatform _geolocatorPlatform = GeolocatorPlatform.instance;
+  final List<_PositionItem> _positionItems = <_PositionItem>[];
+  StreamSubscription<Position>? _positionStreamSubscription;
+  StreamSubscription<ServiceStatus>? _serviceStatusStreamSubscription;
+  static const String _kLocationServicesDisabledMessage =
+      'Location services are disabled.';
+  static const String _kPermissionDeniedMessage = 'Permission denied.';
+  static const String _kPermissionDeniedForeverMessage =
+      'Permission denied forever.';
+  static const String _kPermissionGrantedMessage = 'Permission granted.';
+
+  void _toggleServiceStatusStream() {
+    if (_serviceStatusStreamSubscription == null) {
+      final serviceStatusStream = _geolocatorPlatform.getServiceStatusStream();
+      _serviceStatusStreamSubscription =
+          serviceStatusStream.handleError((error) {
+        _serviceStatusStreamSubscription?.cancel();
+        _serviceStatusStreamSubscription = null;
+      }).listen((serviceStatus) {
+        String serviceStatusValue;
+        if (serviceStatus == ServiceStatus.enabled) {
+          serviceStatusValue = 'enabled';
+        } else {
+          serviceStatusValue = 'disabled';
+        }
+        _updatePositionList(
+          _PositionItemType.log,
+          'Location service has been $serviceStatusValue',
+        );
+      });
+    }
   }
 
-  Future<Position> _determinePosition() async {
+  bool _isListening() => !(_positionStreamSubscription == null ||
+      _positionStreamSubscription!.isPaused);
+
+  void _toggleListening() {
+    if (_positionStreamSubscription == null) {
+      final positionStream = _geolocatorPlatform.getPositionStream();
+      _positionStreamSubscription = positionStream.handleError((error) {
+        _positionStreamSubscription?.cancel();
+        _positionStreamSubscription = null;
+      }).listen((position) => _updatePositionList(
+            _PositionItemType.position,
+            position.toString(),
+          ));
+      _positionStreamSubscription?.pause();
+    }
+
+    setState(() {
+      if (_positionStreamSubscription == null) {
+        return;
+      }
+
+      String statusDisplayValue;
+      if (_positionStreamSubscription!.isPaused) {
+        _positionStreamSubscription!.resume();
+        statusDisplayValue = 'resumed';
+      } else {
+        _positionStreamSubscription!.pause();
+        statusDisplayValue = 'paused';
+      }
+
+      _updatePositionList(
+        _PositionItemType.log,
+        'Listening for position updates $statusDisplayValue',
+      );
+    });
+  }
+
+  void _updatePositionList(_PositionItemType type, String displayValue) async {
+    final _position = await _geolocatorPlatform.getLastKnownPosition();
+    if (_position != null &&
+        position != null &&
+        _position.latitude != position!.latitude &&
+        _position.longitude != position!.longitude) {
+      setState(() {
+        print(_position);
+        position = _position;
+        list.insert(0, Point(_position.latitude, _position.longitude));
+        // list.add(Point(_position.latitude, _position.longitude));
+        // list.add();
+        // print(_position);
+        // _positionItems.add(_PositionItem(type, displayValue));
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _toggleServiceStatusStream();
+    _determinePosition();
+    _toggleListening();
+  }
+
+  _determinePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
 
@@ -89,69 +182,100 @@ class _MyHomePageState extends State<MyHomePage> {
 
     // When we reach here, permissions are granted and we can
     // continue accessing the position of the device.
-    return await Geolocator.getCurrentPosition();
+    await Geolocator.getCurrentPosition().then((value) {
+      setState(() {
+        print(value);
+        position = value;
+      });
+    });
+    // return await Geolocator.getCurrentPosition();
+    // return;
   }
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  Future<bool> _handlePermission() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Test if location services are enabled.
+    serviceEnabled = await _geolocatorPlatform.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      // Location services are not enabled don't continue
+      // accessing the position and request users of the
+      // App to enable the location services.
+      _updatePositionList(
+        _PositionItemType.log,
+        _kLocationServicesDisabledMessage,
+      );
+
+      return false;
+    }
+
+    permission = await _geolocatorPlatform.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await _geolocatorPlatform.requestPermission();
+      if (permission == LocationPermission.denied) {
+        // Permissions are denied, next time you could try
+        // requesting permissions again (this is also where
+        // Android's shouldShowRequestPermissionRationale
+        // returned true. According to Android guidelines
+        // your App should show an explanatory UI now.
+        _updatePositionList(
+          _PositionItemType.log,
+          _kPermissionDeniedMessage,
+        );
+
+        return false;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      // Permissions are denied forever, handle appropriately.
+      _updatePositionList(
+        _PositionItemType.log,
+        _kPermissionDeniedForeverMessage,
+      );
+
+      return false;
+    }
+
+    // When we reach here, permissions are granted and we can
+    // continue accessing the position of the device.
+    _updatePositionList(
+      _PositionItemType.log,
+      _kPermissionGrantedMessage,
+    );
+    return true;
   }
+
+  List<Point> list = [];
+  int listCount = 0;
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter $position',
-              style: Theme.of(context).textTheme.headline4,
-            ),
-          ],
-        ),
+      body: ListView(
+        padding: EdgeInsets.all(8),
+        children: list.map((value) {
+          return Container(
+              padding: EdgeInsets.all(8), child: Text(value.toString()));
+        }).toList(),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      // body: Center(
+      //   child: Column(
+      //     mainAxisAlignment: MainAxisAlignment.center,
+      //     children: <Widget>[
+      //       Text(
+      //         'Location:',
+      //       ),
+      //       Text(
+      //         '$position',
+      //       ),
+      //     ],
+      //   ),
+      // ),
     );
   }
 }
