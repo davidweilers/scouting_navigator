@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(MyApp());
@@ -44,9 +46,30 @@ class _PositionItem {
 class Point {
   Point(this.latitude, this.longitude);
   final double latitude, longitude;
+  late String image;
+  bool isImage = false;
+
   @override
   String toString() {
-    return '$latitude, $longitude';
+    try {
+      return '$latitude, $longitude, $image';
+    } catch (e) {
+      return '$latitude, $longitude';
+    }
+  }
+
+  toContainer() {
+    if (isImage == false)
+      return Container(
+        child: Text(toString()),
+      );
+    else
+      return Column(
+        children: [
+          Text('$latitude, $longitude'),
+          Image.file(File(image)),
+        ],
+      );
   }
 }
 
@@ -131,11 +154,6 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         print(_position);
         position = _position;
-        list.insert(0, Point(_position.latitude, _position.longitude));
-        // list.add(Point(_position.latitude, _position.longitude));
-        // list.add();
-        // print(_position);
-        // _positionItems.add(_PositionItem(type, displayValue));
       });
     }
   }
@@ -186,6 +204,8 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         print(value);
         position = value;
+        // if (position != null && position.latitude != null)
+        list.add(Point(position!.latitude, position!.longitude));
       });
     });
     // return await Geolocator.getCurrentPosition();
@@ -250,32 +270,47 @@ class _MyHomePageState extends State<MyHomePage> {
   List<Point> list = [];
   int listCount = 0;
 
+  final ImagePicker _picker = ImagePicker();
+
+  _openCamera(BuildContext context) async {
+    try {
+      final photo =
+          await _picker.pickImage(source: ImageSource.camera, imageQuality: 25);
+// photo.
+      list.first.image = photo!.path;
+      list.first.isImage = true;
+      setState(() {});
+      // print(photo!.path);
+    } catch (e) {
+      print(e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        actions: [
+          IconButton(
+              onPressed: () => _openCamera(context), icon: Icon(Icons.camera))
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: const Icon(Icons.navigation),
+        onPressed: () {
+          setState(() {
+            list.insert(0, Point(position!.latitude, position!.longitude));
+          });
+        },
       ),
       body: ListView(
         padding: EdgeInsets.all(8),
         children: list.map((value) {
           return Container(
-              padding: EdgeInsets.all(8), child: Text(value.toString()));
+              padding: EdgeInsets.all(8), child: value.toContainer());
         }).toList(),
       ),
-      // body: Center(
-      //   child: Column(
-      //     mainAxisAlignment: MainAxisAlignment.center,
-      //     children: <Widget>[
-      //       Text(
-      //         'Location:',
-      //       ),
-      //       Text(
-      //         '$position',
-      //       ),
-      //     ],
-      //   ),
-      // ),
     );
   }
 }
